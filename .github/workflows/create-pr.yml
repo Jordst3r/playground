@@ -1,0 +1,260 @@
+name: Create PR for skateboard-builder init
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  metadata: read
+
+jobs:
+  create-pr:
+    runs-on: ubuntu-latest
+    env:
+      OWNER: Jordst3r
+      REPO: playground
+      BASE_BRANCH: main
+      NEW_BRANCH: skateboard-builder/init
+      PR_TITLE: chore: add skateboard-builder starter files
+      PR_BODY: |
+        Add starter folder for the Skateboard Builder SPA.
+
+        This PR adds:
+        - skateboard-builder/README.md
+        - skateboard-builder/seed-data/parts-minimal.json
+        - skateboard-builder/package.json
+        - skateboard-builder/.gitignore
+
+        Closes: #1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Create script and package.json
+        run: |
+          cat > package.json <<'EOF'
+          {
+            "name": "create-pr-action",
+            "version": "0.0.1",
+            "private": true,
+            "dependencies": {
+              "@octokit/rest": "^19.0.0",
+              "@octokit/auth-app": "^5.0.0"
+            }
+          }
+          EOF
+
+          cat > create-pr.js <<'EOF'
+          const { Octokit } = require("@octokit/rest");
+          const { createAppAuth } = require("@octokit/auth-app");
+
+          const OWNER = process.env.OWNER;
+          const REPO = process.env.REPO;
+          const BASE_BRANCH = process.env.BASE_BRANCH || "main";
+          const NEW_BRANCH = process.env.NEW_BRANCH || "skateboard-builder/init";
+          const PR_TITLE = process.env.PR_TITLE;
+          const PR_BODY = process.env.PR_BODY;
+
+          async function main() {
+            const appId = process.env.PLAYGROUND_APP_ID;
+            const privateKey = process.env.PLAYGROUND_PRIVATE_KEY;
+
+            if (!appId || !privateKey) {
+              console.error("Missing PLAYGROUND_APP_ID or PLAYGROUND_PRIVATE_KEY");
+              process.exit(1);
+            }
+
+            const auth = createAppAuth({
+              appId: appId,
+              privateKey: privateKey
+            });
+
+            // Get an app token (JWT) so we can query the installation for this repo
+            const appAuth = await auth({ type: "app" });
+            const octokitApp = new Octokit({ auth: appAuth.token });
+
+            // Get installation id for this repository
+            const installRes = await octokitApp.rest.apps.getRepoInstallation({
+              owner: OWNER,
+              repo: REPO
+            });
+            const installationId = installRes.data.id;
+
+            // Exchange for installation token
+            const installationAuth = await auth({
+              type: "installation",
+              installationId: installationId
+            });
+
+            const octokit = new Octokit({ auth: installationAuth.token });
+
+            // Get base branch sha
+            const baseRef = await octokit.rest.git.getRef({
+              owner: OWNER,
+              repo: REPO,
+              ref: `heads/${BASE_BRANCH}`
+            });
+            const baseSha = baseRef.data.object.sha;
+
+            // Try to create the branch
+            try {
+              await octokit.rest.git.createRef({
+                owner: OWNER,
+                repo: REPO,
+                ref: `refs/heads/${NEW_BRANCH}`,
+                sha: baseSha
+              });
+              console.log("Created branch", NEW_BRANCH);
+            } catch (err) {
+              if (err.status === 422) {
+                console.log("Branch already exists, continuing:", NEW_BRANCH);
+              } else {
+                throw err;
+              }
+            }
+
+            // Files to add
+            const files = {
+              "skateboard-builder/README.md": `# Skateboard Builder (starter)
+
+Overview
+This folder contains the starter structure for the Skateboard Builder single-page app (SPA) being developed inside the \`Jordst3r/playground\` repository. The app will let users assemble skateboard builds from parts, validate compatibility, save builds to accounts, and export a cost-summary JSON.
+
+Purpose of these starter files
+- Provide a clear project README and acceptance criteria so contributors can begin work on issue #1 (project folder + baseline).
+- Seed the project with a minimal parts dataset so early UI prototypes and API stubs can be tested against realistic data.
+- Provide placeholder manifests so tooling and CI can be added consistently.
+
+Repository path
+- playground/skateboard-builder/
+
+Quick structure
+- README.md (this file)
+- package.json (placeholder)
+- .gitignore
+- seed-data/parts-minimal.json (minimal set of parts to bootstrap frontend/backend development)
+
+Kickoff acceptance (issue #1)
+- A \`skateboard-builder/\` folder exists with README, placeholder manifests, and seed-data.
+- README contains a short project summary, setup notes for developers, and the open questions that impact design decisions.
+`,
+
+              "skateboard-builder/package.json": `{
+  "name": "skateboard-builder",
+  "version": "0.1.0",
+  "description": "Starter files for Skateboard Builder SPA inside playground repo",
+  "private": true,
+  "scripts": {
+    "dev": "echo \\"dev start - replace with your framework's dev command\\"",
+    "test": "echo \\"no tests configured\\""
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}
+`,
+
+              "skateboard-builder/.gitignore": `node_modules/
+dist/
+.env
+.DS_Store
+`,
+
+              "skateboard-builder/seed-data/parts-minimal.json": `[
+  {
+    "id": "deck-001",
+    "name": "Maple Cruiser Deck 8.0",
+    "category": "deck",
+    "attributes": {
+      "width_in": 8.0,
+      "length_in": 31.5,
+      "mounting_hole_pattern": "standard"
+    },
+    "price": 59.99,
+    "currency": "USD",
+    "tags": ["maple","cruiser","8.0"]
+  },
+  {
+    "id": "truck-001",
+    "name": "HangerPro Trucks 8.0 / 5.25\" Hanger",
+    "category": "trucks",
+    "attributes": {
+      "axle_width_in": 8.0,
+      "hanger_width_in": 5.25,
+      "baseplate_hole_pattern": "standard"
+    },
+    "price": 39.99,
+    "currency": "USD",
+    "tags": ["aluminum","8.0"]
+  }
+]
+`
+            };
+
+            // Create/update files on the branch
+            for (const [path, content] of Object.entries(files)) {
+              try {
+                const existing = await octokit.rest.repos.getContent({
+                  owner: OWNER,
+                  repo: REPO,
+                  path,
+                  ref: NEW_BRANCH
+                });
+                await octokit.rest.repos.createOrUpdateFileContents({
+                  owner: OWNER,
+                  repo: REPO,
+                  path,
+                  message: `chore(init): update ${path}`,
+                  content: Buffer.from(content, "utf8").toString("base64"),
+                  sha: existing.data.sha,
+                  branch: NEW_BRANCH
+                });
+                console.log("Updated", path);
+              } catch (e) {
+                if (e.status === 404) {
+                  await octokit.rest.repos.createOrUpdateFileContents({
+                    owner: OWNER,
+                    repo: REPO,
+                    path,
+                    message: `chore(init): add ${path}`,
+                    content: Buffer.from(content, "utf8").toString("base64"),
+                    branch: NEW_BRANCH
+                  });
+                  console.log("Created", path);
+                } else {
+                  throw e;
+                }
+              }
+            }
+
+            // Create PR
+            const { data: pr } = await octokit.rest.pulls.create({
+              owner: OWNER,
+              repo: REPO,
+              title: PR_TITLE,
+              head: NEW_BRANCH,
+              base: BASE_BRANCH,
+              body: PR_BODY
+            });
+
+            console.log("PR created:", pr.html_url);
+          }
+
+          main().catch(err => {
+            console.error(err);
+            process.exit(1);
+          });
+          EOF
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run create-pr script
+        env:
+          PLAYGROUND_APP_ID: ${{ secrets.PLAYGROUND_APP_ID }}
+          PLAYGROUND_PRIVATE_KEY: ${{ secrets.PLAYGROUND_PRIVATE_KEY }}
+        run: node create-pr.js
