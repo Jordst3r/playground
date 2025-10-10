@@ -15,7 +15,7 @@ jobs:
       REPO: playground
       BASE_BRANCH: main
       NEW_BRANCH: skateboard-builder/init
-      PR_TITLE: chore: add skateboard-builder starter files
+      PR_TITLE: 'chore: add skateboard-builder starter files'
       PR_BODY: |
         Add starter folder for the Skateboard Builder SPA.
 
