@@ -1,7 +1,7 @@
 # Hex Pressure — Roadmap & Deferred Decisions
 
 This document tracks decisions we have **intentionally deferred** so they
-don’t get lost or re-litigated. If something is deferred, it belongs here.
+don’t get lost or re-litigated. If something is deferred, it belongs here. If something is completed it should be struck out using `~~` format. Add notes as sub-bullets to completed items as necessary to preserve decision history. 
 
 ---
 
@@ -28,16 +28,18 @@ don’t get lost or re-litigated. If something is deferred, it belongs here.
 
 ---
 
-## Paper Cuts / Non-Critical Bugs (UI)
+## Paper Cuts / Bugs (UI)
 
-- Add **Back** button to solved panel (disabled on first level)
-- Show **Retry** button at all times (outside solved panel)
-- Star colors: gold for normal solve, pink only for ascension
-- Disable/grey **Undo** when undo stack is empty
+- ~~Add **Back** button to solved panel (disabled on first level)~~
+- ~~Show **Retry** button at all times (outside solved panel)~~
+- ~~Star colors: gold for normal solve, pink only for ascension~~
+- ~~Disable/grey **Undo** when undo stack is empty~~
 - Track **star totals per section** (representation TBD)
 - **Optional polish:** render 3 stars with unearned stars dimmed
-- Lock rotations after solve; re-enable on Retry (done)
-- Undo should not count toward moveCount (done)
+- ~~Lock rotations after solve; re-enable on Retry~~
+- ~~Undo should not count toward moveCount~~
+- Undo is not reducing move count but should be
+- if the puzzle is solved, Undo should be disabled for that puzzle
 
 ---
 
