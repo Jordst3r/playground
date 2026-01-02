@@ -1,8 +1,8 @@
 import { DIRS, key } from "./hex";
 import type { GameState, LevelDef, Move, Tile, TileDerived, TileState } from "./types";
 
-function clampOrient(o: number): 0|1|2|3|4|5 {
-  return (((o % 6) + 6) % 6) as any;
+export function clampOrient(o: number): 0|1|2|3|4|5 {
+  return (((o % 6) + 6) % 6) as 0|1|2|3|4|5;
 }
 
 function acceptedSides(tile: Tile): boolean[] {
@@ -96,6 +96,23 @@ function beginSettle(state: GameState, now: number): GameState {
   };
 }
 
+export function tileIdAt(state: GameState, q: number, r: number): string | null {
+  return state.occupied[key(q, r)] ?? null;
+}
+
+export function canRotateAt(state: GameState, q: number, r: number): boolean {
+  if (state.phase === "SETTLING") return false;
+  if (state.phase === "SOLVED") return false;
+
+  const id = tileIdAt(state, q, r);
+  if (!id) return false;
+
+  const t = state.tilesById[id];
+  if (!t || t.locked) return false;
+
+  return t.type === "DIRECTIONAL";
+}
+
 export function tick(state: GameState, now: number): GameState {
   if (state.phase !== "SETTLING") return state;
   if (now - state.settleStartMs >= state.settleDurationMs) {
@@ -114,14 +131,12 @@ function snapshot(state: GameState) {
 }
 
 export function applyMove(state: GameState, move: Move, now: number): GameState {
-  // gate input (lock board after solve; Retry reloads level)
-	if (state.phase === "REPLAYING") return state;
+  // During settling: ignore input
 	if (state.phase === "SETTLING") return state;
 
-	// After solve: allow UNDO only
-	if (state.phase === "SOLVED" && move.kind !== "UNDO") return state;
+	// After solve: lock input; use Retry to replay
+	if (state.phase === "SOLVED") return state;
 
-  // record undo as a move that counts
   if (move.kind === "UNDO") {
     if (state.undoStack.length === 0) return state;
     const prev = state.undoStack[state.undoStack.length - 1];
@@ -134,31 +149,21 @@ export function applyMove(state: GameState, move: Move, now: number): GameState 
 	  derivedById: prev.derivedById,
 	  undoStack: newUndoStack,
 	  tape: [...state.tape, move], // keep recording for faithful replay
-	  moveCount: state.moveCount,  // undo does NOT count
+	  moveCount: Math.max(0, state.moveCount - 1), // undo rewinds a counted move
 	};
 
     return beginSettle(next, now);
   }
 
-  // forward move: snapshot for undo
-  const undoStack = [...state.undoStack, snapshot(state)];
-
   if (move.kind === "ROTATE") {
-	  const t = state.tilesById[move.tileId];
-	  if (!t || t.locked) return state;
+    const t = state.tilesById[move.tileId];
+    if (!t || t.locked) return state;
 
-	  // v1: only DIRECTIONAL tiles have meaningful orientation
-	  if (t.type !== "DIRECTIONAL") return state;
+    // v1: only DIRECTIONAL tiles have meaningful orientation
+    if (t.type !== "DIRECTIONAL") return state;
 
-	  // Save a pre-move snapshot for UNDO
-	  const undoStack = [
-		...state.undoStack,
-		{
-		  tilesById: state.tilesById,
-		  occupied: state.occupied,
-		  derivedById: state.derivedById,
-		},
-	  ];
+    // Save a pre-move snapshot for UNDO
+    const undoStack = [...state.undoStack, snapshot(state)];
 
 	  const delta = move.dir === "CW" ? 1 : -1;
 	  const nt: Tile = { ...t, orient: clampOrient(t.orient + delta) };

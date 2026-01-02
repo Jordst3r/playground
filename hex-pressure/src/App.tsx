@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useReducer, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { LEVELS } from "./engine/levels";
-import { applyMove, initFromLevel, tick } from "./engine/engine";
+import { applyMove, initFromLevel, tick, canRotateAt, tileIdAt } from "./engine/engine";
 import type { GameState, Move } from "./engine/types";
 import { CanvasBoard } from "./ui/CanvasBoard";
 import { logValidation } from "./engine/validate";
+import { solveRotateOnly } from "./engine/solver";
 
 type Action =
   | { type: "LOAD_LEVEL"; index: number }
@@ -25,26 +26,105 @@ function reducer(state: GameState, action: Action): GameState {
   }
 }
 
+/** --- Replay (in-memory, storage-ready) --- */
+type Axial = { q: number; r: number };
+type ReplayMove = { kind: "ROTATE"; at: Axial; dir: "CW" | "CCW" };
+
+type Recording = {
+  levelId: string;
+  levelHash: string;
+  createdAt: number;
+  moves: ReplayMove[];
+  meta?: { moveCount: number; source?: "player" | "solver" };
+};
+
+type LevelReplays = { latest?: Recording; best?: Recording };
+type ReplayMode = "latest" | "best";
+
+type ReplayStatus =
+  | { state: "idle" }
+  | { state: "loading"; recording: Recording; index: number; speedMs: number }
+  | { state: "playing"; recording: Recording; index: number; speedMs: number }
+  | { state: "done"; recording: Recording }
+  | { state: "error"; message: string };
+
+type ReplayCtrl = {
+  recording: Recording;
+  index: number;
+  speedMs: number;
+  runId: number; // prevents stale timers from older runs
+};
+
+function stableStringify(obj: unknown): string {
+  if (obj === null || typeof obj !== "object") return JSON.stringify(obj);
+  if (Array.isArray(obj)) return `[${obj.map(stableStringify).join(",")}]`;
+  const keys = Object.keys(obj).sort();
+  return `{${keys.map(k => JSON.stringify(k) + ":" + stableStringify((obj as Record<string, unknown>)[k])).join(",")}}`;
+}
+
+function fnv1a32(str: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
+
+function computeLevelHash(levelDef: unknown): string {
+  return fnv1a32(stableStringify(levelDef));
+}
+
+function starsForMoves(moves: number, ideal: number, twoStarMax: number): number {
+  if (moves <= ideal) return 3;
+  if (moves <= twoStarMax) return 2;
+  return 1;
+}
+
+
+// maimn App component
 export default function App() {
   const [levelIndex, setLevelIndex] = useState(0);
   const level = LEVELS[levelIndex];
 
   const [state, dispatch] = useReducer(reducer, initFromLevel(level, 300));
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [showNumbers, setShowNumbers] = useState(
-	  level.rules.defaultShowNumbers ?? true
-	);
-	const [showHud, setShowHud] = useState(true);
+  const [showNumbers, setShowNumbers] = useState(level.rules.defaultShowNumbers ?? true);
+  const [showHud, setShowHud] = useState(true);
+
+  /** Replay state */
+  const [replaysByLevel, setReplaysByLevel] = useState<Record<string, LevelReplays>>({});
+  const [replayStatus, setReplayStatus] = useState<ReplayStatus>({ state: "idle" });
+  const [replaySpeedMs, setReplaySpeedMs] = useState<number>(120);
+
+  const isReplaying = replayStatus.state === "loading" || replayStatus.state === "playing";
+
+  // Keep latest state in a ref so replay timers don't close over stale state.
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  // Current run recording (net of undo). We store axial coords + dir.
+  const currentRunRef = useRef<ReplayMove[]>([]);
+  const resetRunRecording = () => {
+    currentRunRef.current = [];
+  };
+
+  const replayCtrlRef = useRef<ReplayCtrl | null>(null);
+  const replayRunIdRef = useRef(0);
 
   const selectedTile = selectedId ? state.tilesById[selectedId] : null;
-	const canRotate =
-	  !!selectedTile &&
-	  selectedTile.type === "DIRECTIONAL" &&
-	  state.phase !== "SETTLING" &&
-	  state.phase !== "SOLVED";
+  const canRotate =
+    !!selectedTile &&
+    selectedTile.type === "DIRECTIONAL" &&
+    state.phase !== "SETTLING" &&
+    state.phase !== "SOLVED" &&
+    !isReplaying;
 
-	
-	{!selectedTile ? "Select a tile" : selectedTile.type !== "DIRECTIONAL" ? "Not rotatable" : "Rotate ⟲ (Q)"}
+  const solved = state.phase === "SOLVED";
+  const overstressedCount = Object.values(state.derivedById).filter(d => d.state === "OVERSTRESSED").length;
+  const canUndo = state.undoStack.length > 0 && state.phase !== "SETTLING" && state.phase !== "SOLVED" && !isReplaying;
 
   // RAF tick loop for settling animation gating
   useEffect(() => {
@@ -57,33 +137,42 @@ export default function App() {
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  // keyboard shortcuts
+  // keyboard shortcuts (disabled during replay)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (isReplaying) return;
+
       const now = performance.now();
       if (e.key === "q" || e.key === "Q") {
         if (!selectedId) return;
+        // record net run move
+        const t = stateRef.current.tilesById[selectedId];
+        if (t) currentRunRef.current.push({ kind: "ROTATE", at: { q: t.q, r: t.r }, dir: "CCW" });
+
         dispatch({ type: "MOVE", move: { kind: "ROTATE", tileId: selectedId, dir: "CCW" }, now });
       } else if (e.key === "e" || e.key === "E") {
         if (!selectedId) return;
+        const t = stateRef.current.tilesById[selectedId];
+        if (t) currentRunRef.current.push({ kind: "ROTATE", at: { q: t.q, r: t.r }, dir: "CW" });
+
         dispatch({ type: "MOVE", move: { kind: "ROTATE", tileId: selectedId, dir: "CW" }, now });
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
-		  if (state.undoStack.length === 0 || state.phase === "SETTLING") return;
-		  dispatch({ type: "MOVE", move: { kind: "UNDO" }, now });
-		}
-		else if (e.key === "n" || e.key === "N") {
+        const s = stateRef.current;
+        if (s.undoStack.length === 0 || s.phase === "SETTLING" || s.phase === "SOLVED") return;
+
+        // net run: pop last rotate
+        currentRunRef.current.pop();
+        dispatch({ type: "MOVE", move: { kind: "UNDO" }, now });
+      } else if (e.key === "n" || e.key === "N") {
         setShowNumbers(s => !s);
       } else if (e.key === "h" || e.key === "H") {
-		  setShowHud(v => !v);
-		}
+        setShowHud(v => !v);
+      }
     };
+
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedId, state.phase, state.undoStack.length]);
-
-  const solved = state.phase === "SOLVED";
-  const overstressedCount = Object.values(state.derivedById).filter(d => d.state === "OVERSTRESSED").length;
-  const canUndo = state.undoStack.length > 0 && state.phase !== "SETTLING";
+  }, [selectedId, isReplaying]);
 
   const scoreText = useMemo(() => {
     const moves = state.moveCount;
@@ -95,174 +184,495 @@ export default function App() {
   }, [state.moveCount, level.scoring]);
 
   function load(i: number) {
-	  setLevelIndex(i);
-	  const lvl = LEVELS[i];
-	  logValidation(lvl);
-	  dispatch({ type: "LOAD_LEVEL", index: i });
-	  logValidation(level);
-	  setShowNumbers(lvl.rules.defaultShowNumbers ?? true);
-	  setSelectedId(null);
-	}
+    setLevelIndex(i);
+    const lvl = LEVELS[i];
 
+    // Clear per-attempt run recording on any load.
+    resetRunRecording();
+
+    // Dev-only: validate + solver diagnostics
+    if (import.meta.env.DEV) {
+      logValidation(lvl);
+
+      const res = solveRotateOnly(lvl);
+      if (res.ok) {
+        console.log(
+          `[solver] ${lvl.id}: minMoves=${res.minMoves} (level idealMoves=${lvl.scoring.idealMoves}), visited=${res.visited}`
+        );
+      } else {
+        console.warn(`[solver] ${lvl.id}: ${res.reason}, visited=${res.visited}`);
+      }
+    }
+
+    dispatch({ type: "LOAD_LEVEL", index: i });
+
+    setShowNumbers(lvl.rules.defaultShowNumbers ?? true);
+    setSelectedId(null);
+  }
+
+  function starsForLevel(levelId: string, ideal: number, twoStarMax: number): number | null {
+    const slots = replaysByLevel[levelId];
+    const rec = slots?.best ?? slots?.latest;
+    if (!rec) return null; // not completed
+    return starsForMoves(rec.moves.length, ideal, twoStarMax);
+  }
 
   function rotate(dir: "CW" | "CCW") {
+    if (isReplaying) return;
     if (!selectedId) return;
+
+    const t = state.tilesById[selectedId];
+    if (t) currentRunRef.current.push({ kind: "ROTATE", at: { q: t.q, r: t.r }, dir });
+
     dispatch({ type: "MOVE", move: { kind: "ROTATE", tileId: selectedId, dir }, now: performance.now() });
   }
 
   function undo() {
+    if (isReplaying) return;
+    if (!canUndo) return;
+
+    // net run: pop last rotate
+    currentRunRef.current.pop();
     dispatch({ type: "MOVE", move: { kind: "UNDO" }, now: performance.now() });
   }
 
+  function retry() {
+    if (isReplaying) return;
+    load(levelIndex);
+  }
+
+  /** Finalize latest/best recording on SOLVED edge */
+  const prevSolvedRef = useRef(false);
+  useEffect(() => {
+    const prev = prevSolvedRef.current;
+    prevSolvedRef.current = solved;
+
+    if (!prev && solved) {
+      const lvl = LEVELS[levelIndex];
+      const levelId = lvl.id;
+      const levelHash = computeLevelHash(lvl);
+      const moves = currentRunRef.current.slice();
+
+      const rec: Recording = {
+        levelId,
+        levelHash,
+        createdAt: Date.now(),
+        moves,
+        meta: { moveCount: moves.length, source: "player" },
+      };
+
+      setReplaysByLevel(prevMap => {
+        const prevSlots = prevMap[levelId] ?? {};
+        const best = prevSlots.best;
+        const nextBest = !best || rec.moves.length < best.moves.length ? rec : best;
+        return { ...prevMap, [levelId]: { latest: rec, best: nextBest } };
+      });
+    }
+  }, [solved, levelIndex]);
+
+  /** Replay controls */
+  function startReplay(mode: ReplayMode) {
+    const lvl = LEVELS[levelIndex];
+    const levelId = lvl.id;
+    const slots = replaysByLevel[levelId];
+    const recording = mode === "latest" ? slots?.latest : slots?.best;
+    if (!recording) return;
+
+    const currentHash = computeLevelHash(lvl);
+    if (recording.levelId !== levelId || recording.levelHash !== currentHash) {
+      setReplayStatus({ state: "error", message: "Replay is from a different version of this level." });
+      return;
+    }
+
+    resetRunRecording();
+    setSelectedId(null);
+
+    // New run id to invalidate stale timers
+    const runId = ++replayRunIdRef.current;
+    replayCtrlRef.current = { recording, index: 0, speedMs: replaySpeedMs, runId };
+
+    // UI state: show loading (optional) or jump straight to playing UI
+    setReplayStatus({ state: "loading", recording, index: 0, speedMs: replaySpeedMs });
+
+    // Reset/load canonical initial state
+    load(levelIndex);
+  }
+
+function stopReplay() {
+    replayCtrlRef.current = null;
+    setReplayStatus({ state: "idle" });
+  }
+
+  // Replay driver: phase-driven stepping, with speed delay
+  useEffect(() => {
+    const ctrl = replayCtrlRef.current;
+    if (!ctrl) return;
+
+    const { recording, speedMs, runId } = ctrl;
+
+    // Gate: wait for correct level + not settling
+    if (state.levelId !== recording.levelId) return;
+    if (state.phase === "SETTLING") return;
+
+    // If level is already solved, finish immediately
+    if (state.phase === "SOLVED") {
+      replayCtrlRef.current = null;
+      setReplayStatus({ state: "done", recording });
+      return;
+    }
+
+    // If we're still showing loading in UI, flip to playing UI once we're ready.
+    // This is the only synchronous set here, but it happens at most once per run
+    // and isn't a state-machine loop anymore.
+    if (replayStatus.state === "loading") {
+      setReplayStatus({ state: "playing", recording, index: ctrl.index, speedMs });
+    }
+
+    // If we're done, finish
+    if (ctrl.index >= recording.moves.length) {
+      replayCtrlRef.current = null;
+      setReplayStatus({ state: "done", recording });
+      return;
+    }
+
+    const handle = window.setTimeout(() => {
+      const liveCtrl = replayCtrlRef.current;
+      if (!liveCtrl) return;
+      if (liveCtrl.runId !== runId) return; // stale timer
+
+      const s = stateRef.current;
+
+      // Respect settling/solved at execution time too
+      if (s.phase === "SETTLING") return;
+      if (s.phase === "SOLVED") {
+        replayCtrlRef.current = null;
+        setReplayStatus({ state: "done", recording });
+        return;
+      }
+
+      // Check done again
+      if (liveCtrl.index >= recording.moves.length) {
+        replayCtrlRef.current = null;
+        setReplayStatus({ state: "done", recording });
+        return;
+      }
+
+      const m = recording.moves[liveCtrl.index];
+      const { q, r } = m.at;
+
+      if (!canRotateAt(s, q, r)) {
+        replayCtrlRef.current = null;
+        setReplayStatus({ state: "error", message: `Invalid replay move at (${q},${r})` });
+        return;
+      }
+
+      const tileId = tileIdAt(s, q, r);
+      if (!tileId) {
+        replayCtrlRef.current = null;
+        setReplayStatus({ state: "error", message: `No tile at (${q},${r})` });
+        return;
+      }
+
+      dispatch({
+        type: "MOVE",
+        move: { kind: "ROTATE", tileId, dir: m.dir },
+        now: performance.now(),
+      });
+
+      // Advance controller index (no render yet)
+      liveCtrl.index += 1;
+
+      // Update UI (this is a single state update per move)
+      setReplayStatus({ state: "playing", recording, index: liveCtrl.index, speedMs: liveCtrl.speedMs });
+    }, speedMs);
+
+    return () => window.clearTimeout(handle);
+  }, [state.levelId, state.phase, replayStatus.state]);
+
+  // Disable selection during replay
+  const setSelectedIdSafe = (id: string | null) => {
+    if (isReplaying) return;
+    setSelectedId(id);
+  };
+
+  const currentLevelId = level.id;
+  const currentSlots = replaysByLevel[currentLevelId] ?? {};
+  const hasLatest = !!currentSlots.latest;
+  const hasBest = !!currentSlots.best;
+
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 16, padding: 16, minHeight: "100vh", background: "#0b0f14", color: "white", fontFamily: "system-ui, sans-serif", }}>
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "1fr 320px",
+        gap: 16,
+        padding: 16,
+        minHeight: "100vh",
+        background: "#0b0f14",
+        color: "white",
+        fontFamily: "system-ui, sans-serif",
+      }}
+    >
       <div>
         <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 12 }}>
           <div style={{ fontSize: 18, fontWeight: 650 }}>Hex Pressure</div>
           <div style={{ opacity: 0.75 }}>{level.name}</div>
           <div style={{ marginLeft: "auto", display: "flex", gap: 12, alignItems: "baseline" }}>
-			<div style={{ opacity: 0.85 }}>Moves: {state.moveCount}</div>
-			<div style={{ opacity: 0.85 }}>
-				{overstressedCount === 0 ? "All stable" : `Overstressed: ${overstressedCount}`}
-			</div>
-			</div>
+            <div style={{ opacity: 0.85 }}>Moves: {state.moveCount}</div>
+            <div style={{ opacity: 0.85 }}>
+              {overstressedCount === 0 ? "All stable" : `Overstressed: ${overstressedCount}`}
+            </div>
+          </div>
         </div>
 
         <CanvasBoard
           state={state}
           boardCells={level.board.cells}
           selectedId={selectedId}
-          setSelectedId={setSelectedId}
+          setSelectedId={setSelectedIdSafe}
           showNumbers={showNumbers}
         />
-		
+
         <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
-          <button onClick={() => rotate("CCW")} disabled={!canRotate}>Rotate ⟲ (Q)</button>
-		<button onClick={() => rotate("CW")} disabled={!canRotate}>Rotate ⟳ (E)</button>
-          <button onClick={undo} disabled={!canUndo}>Undo (Ctrl/Cmd+Z)</button>
-		  <button onClick={() => load(levelIndex)} disabled={state.phase === "SETTLING"}>Retry</button>
-          <button onClick={() => setShowNumbers(v => !v)} style={{ marginLeft: "auto" }}>
+          <button onClick={() => rotate("CCW")} disabled={!canRotate}>
+            Rotate ⟲ (Q)
+          </button>
+          <button onClick={() => rotate("CW")} disabled={!canRotate}>
+            Rotate ⟳ (E)
+          </button>
+          <button onClick={undo} disabled={!canUndo}>
+            Undo (Ctrl/Cmd+Z)
+          </button>
+          <button onClick={retry} disabled={state.phase === "SETTLING" || isReplaying}>
+            Retry
+          </button>
+          <button onClick={() => setShowNumbers(v => !v)} style={{ marginLeft: "auto" }} disabled={isReplaying}>
             {showNumbers ? "Hide" : "Show"} Pressure Insight (N)
           </button>
         </div>
 
+        {isReplaying && (
+          <div style={{ marginTop: 10, opacity: 0.85, fontSize: 13 }}>
+            Replay active — input disabled
+          </div>
+        )}
+
         {solved && (
-          <div style={{ marginTop: 14, padding: 12, borderRadius: 12, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.04)" }}>
+          <div
+            style={{
+              marginTop: 14,
+              padding: 12,
+              borderRadius: 12,
+              border: "1px solid rgba(255,255,255,0.12)",
+              background: "rgba(255,255,255,0.04)",
+            }}
+          >
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <div style={{ fontSize: 16, fontWeight: 650 }}>
                 Solved{" "}
-                <span style={{ color: scoreText.ascended ? "#ff4fd8" : "#f4c542" }}>
-                  {"★".repeat(scoreText.stars)}
+                <span style={{ display: "inline-flex", gap: 2, marginLeft: 6 }}>
+                  {[1, 2, 3].map((s) => (
+                    <span
+                      key={s}
+                      style={{
+                        opacity: s <= scoreText.stars ? 1 : 0.25,
+                        color: scoreText.ascended ? "#ff4fd8" : "#f4c542",
+                      }}
+                    >
+                      ★
+                    </span>
+                  ))}
                 </span>
               </div>
               <div style={{ opacity: 0.8 }}>
                 {scoreText.moves} moves (ideal {scoreText.ideal}, 2★ ≤ {scoreText.two})
               </div>
               <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-				  <button
-					onClick={() => load(Math.max(0, levelIndex - 1))}
-					disabled={levelIndex <= 0}
-				  >
-					Back
-				  </button>
-
-				  <button
-					onClick={() => load(Math.min(LEVELS.length - 1, levelIndex + 1))}
-					disabled={levelIndex >= LEVELS.length - 1}
-				  >
-					Next
-				  </button>
-				</div>
+                <button onClick={() => load(Math.max(0, levelIndex - 1))} disabled={levelIndex <= 0 || isReplaying}>
+                  Back
+                </button>
+                <button
+                  onClick={() => load(Math.min(LEVELS.length - 1, levelIndex + 1))}
+                  disabled={levelIndex >= LEVELS.length - 1 || isReplaying}
+                >
+                  Next
+                </button>
+              </div>
             </div>
             <div style={{ marginTop: 6, opacity: 0.75, fontSize: 13 }}>
               Tip: In this prototype, “ideal” is hand-set. Once the feel is right, we’ll compute it with a solver.
             </div>
           </div>
         )}
-		
-		{import.meta.env.DEV && showHud && (
-		  <div
-			style={{
-			  marginTop: 10,
-			  padding: 10,
-			  borderRadius: 12,
-			  border: "1px solid rgba(255,255,255,0.12)",
-			  background: "rgba(255,255,255,0.03)",
-			  fontSize: 12,
-			  lineHeight: 1.4,
-			  opacity: 0.9,
-			  userSelect: "text",
-			}}
-		  >
-			<div style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
-			  <div style={{ fontWeight: 650 }}>Dev HUD</div>
-			  <div style={{ opacity: 0.7 }}>Toggle: H</div>
-			  <div style={{ marginLeft: "auto", opacity: 0.8 }}>
-				Phase: {state.phase} • Moves: {state.moveCount}
-			  </div>
-			</div>
 
-			<div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 10 }}>
-			  {Object.values(state.tilesById)
-				.slice()
-				.sort((a, b) => a.id.localeCompare(b.id))
-				.map(t => {
-				  const d = state.derivedById[t.id];
-				  const lim = t.limit >= 900 ? "∞" : String(t.limit);
-				  const sel = selectedId === t.id;
-				  return (
-					<div
-					  key={t.id}
-					  style={{
-						padding: "4px 8px",
-						borderRadius: 999,
-						border: sel ? "1px solid rgba(255,255,255,0.55)" : "1px solid rgba(255,255,255,0.12)",
-						background: sel ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.02)",
-					  }}
-					  title={`${t.type} @ (${t.q},${t.r})`}
-					>
-					  <span style={{ fontWeight: 700 }}>{t.id}</span>{" "}
-					  <span style={{ opacity: 0.85 }}>
-						{d?.pressure ?? 0}/{lim}
-					  </span>{" "}
-					  <span style={{ opacity: 0.7 }}>
-						{d?.state ?? "?"} • o{t.orient}
-					  </span>
-					</div>
-				  );
-				})}
-			</div>
-		  </div>
-		)}
+        {import.meta.env.DEV && showHud && (
+          <div
+            style={{
+              marginTop: 10,
+              padding: 10,
+              borderRadius: 12,
+              border: "1px solid rgba(255,255,255,0.12)",
+              background: "rgba(255,255,255,0.03)",
+              fontSize: 12,
+              lineHeight: 1.4,
+              opacity: 0.9,
+              userSelect: "text",
+            }}
+          >
+            <div style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
+              <div style={{ fontWeight: 650 }}>Dev HUD</div>
+              <div style={{ opacity: 0.7 }}>Toggle: H</div>
+              <div style={{ marginLeft: "auto", opacity: 0.8 }}>
+                Phase: {state.phase} • Moves: {state.moveCount}
+              </div>
+            </div>
+
+            <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 10 }}>
+              {Object.values(state.tilesById)
+                .slice()
+                .sort((a, b) => a.id.localeCompare(b.id))
+                .map(t => {
+                  const d = state.derivedById[t.id];
+                  const lim = t.limit >= 900 ? "∞" : String(t.limit);
+                  const sel = selectedId === t.id;
+                  return (
+                    <div
+                      key={t.id}
+                      style={{
+                        padding: "4px 8px",
+                        borderRadius: 999,
+                        border: sel ? "1px solid rgba(255,255,255,0.55)" : "1px solid rgba(255,255,255,0.12)",
+                        background: sel ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.02)",
+                      }}
+                      title={`${t.type} @ (${t.q},${t.r})`}
+                    >
+                      <span style={{ fontWeight: 700 }}>{t.id}</span>{" "}
+                      <span style={{ opacity: 0.85 }}>{d?.pressure ?? 0}/{lim}</span>{" "}
+                      <span style={{ opacity: 0.7 }}>{d?.state ?? "?"} • o{t.orient}</span>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        )}
       </div>
 
-      <div style={{ padding: 12, borderRadius: 12, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.03)" }}>
+      <div
+        style={{
+          padding: 12,
+          borderRadius: 12,
+          border: "1px solid rgba(255,255,255,0.12)",
+          background: "rgba(255,255,255,0.03)",
+        }}
+      >
         <div style={{ fontWeight: 650, marginBottom: 10 }}>Levels</div>
         <div style={{ display: "grid", gap: 8 }}>
           {LEVELS.map((l, i) => (
             <button
               key={l.id}
               onClick={() => load(i)}
+              disabled={isReplaying}
               style={{
                 textAlign: "left",
                 padding: "10px 10px",
                 borderRadius: 10,
                 border: i === levelIndex ? "1px solid rgba(255,255,255,0.45)" : "1px solid rgba(255,255,255,0.12)",
                 background: i === levelIndex ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.03)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
               }}
             >
-              <div style={{ fontWeight: 600 }}>{l.name}</div>
-              <div style={{ fontSize: 12, opacity: 0.75 }}>{l.id}</div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {l.name}
+                </div>
+                <div style={{ fontSize: 12, opacity: 0.75 }}>{l.id}</div>
+              </div>
+
+              {(() => {
+                const stars = starsForLevel(l.id, l.scoring.idealMoves, l.scoring.twoStarMax);
+                if (stars == null) return null;
+
+                return (
+                  <div style={{ display: "inline-flex", gap: 2, flexShrink: 0 }}>
+                    {[1, 2, 3].map((s) => (
+                      <span
+                        key={s}
+                        style={{
+                          opacity: s <= stars ? 1 : 0.25,
+                          color: "#f4c542",
+                          fontSize: 14,
+                          lineHeight: 1,
+                        }}
+                      >
+                        ★
+                      </span>
+                    ))}
+                  </div>
+                );
+              })()}
             </button>
           ))}
         </div>
 
-        <div style={{ marginTop: 16, fontSize: 13, opacity: 0.8, lineHeight: 1.4 }}>
-          <div><b>Controls</b></div>
-          <div>Click tile to select</div>
-          <div>Q / E rotate</div>
-          <div>Ctrl/Cmd+Z undo</div>
-          <div>N toggles numbers</div>
+        {/* Replay controls */}
+        <div style={{ marginTop: 16, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.10)" }}>
+          <div style={{ fontWeight: 650, marginBottom: 8 }}>Replay</div>
+
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button onClick={() => startReplay("latest")} disabled={isReplaying || !hasLatest}>
+              Replay Latest
+            </button>
+            <button onClick={() => startReplay("best")} disabled={isReplaying || !hasBest}>
+              Replay Best
+            </button>
+            <button onClick={stopReplay} disabled={!isReplaying}>
+              Stop
+            </button>
+
+            <select
+              value={replaySpeedMs}
+              disabled={isReplaying}
+              onChange={e => setReplaySpeedMs(Number(e.target.value))}
+              style={{
+                color: "white",
+                background: "rgba(255,255,255,0.06)",
+                border: "1px solid rgba(255,255,255,0.12)",
+                borderRadius: 10,
+                padding: "8px 10px",
+              }}
+            >
+              <option value={60}>Fast</option>
+              <option value={120}>Normal</option>
+              <option value={240}>Slow</option>
+            </select>
+          </div>
+
+          {replayStatus.state === "playing" && (
+            <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
+              Move {replayStatus.index} / {replayStatus.recording.moves.length}
+            </div>
+          )}
+          {replayStatus.state === "done" && (
+            <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
+              Done
+            </div>
+          )}
+          {replayStatus.state === "error" && (
+            <div style={{ marginTop: 8, fontSize: 12, color: "crimson" }}>
+              {replayStatus.message}
+            </div>
+          )}
+
+          <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75, lineHeight: 1.4 }}>
+            <div><b>Controls</b></div>
+            <div>Click tile to select</div>
+            <div>Q / E rotate</div>
+            <div>Ctrl/Cmd+Z undo</div>
+            <div>N toggles numbers</div>
+          </div>
         </div>
       </div>
 

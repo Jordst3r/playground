@@ -41,7 +41,7 @@ export const LEVELS: LevelDef[] = [
       { id: "C", type: "NEUTRAL", q: 1, r: -1, limit: 6 }, // NE of A
     ],
     scoring: { idealMoves: 1, twoStarMax: 3 },
-    rules: { allowRotate: true, allowUndo: true, defaultShowNumbers: true },
+    rules: { allowRotate: true, allowUndo: true, allowMove: false, defaultShowNumbers: true },
   },
 
   {
@@ -62,7 +62,7 @@ export const LEVELS: LevelDef[] = [
       { id: "B", type: "DIRECTIONAL", q: 1, r: 0, orient: 3, limit: 0 },
     ],
     scoring: { idealMoves: 1, twoStarMax: 3 },
-    rules: { allowRotate: true, allowUndo: true, defaultShowNumbers: true },
+    rules: { allowRotate: true, allowUndo: true, allowMove: false, defaultShowNumbers: true },
   },
 
   {
@@ -90,7 +90,7 @@ export const LEVELS: LevelDef[] = [
       { id: "E", type: "NEUTRAL", q: 0, r: 1, limit: 6 },
     ],
     scoring: { idealMoves: 4, twoStarMax: 7 },
-    rules: { allowRotate: true, allowUndo: true, defaultShowNumbers: true },
+    rules: { allowRotate: true, allowUndo: true, allowMove: false, defaultShowNumbers: true },
   },
 
   {
@@ -117,7 +117,7 @@ export const LEVELS: LevelDef[] = [
       { id: "D", type: "NEUTRAL", q: 0, r: 1, limit: 6 }, // SE of A, SW of B
     ],
     scoring: { idealMoves: 2, twoStarMax: 5 },
-    rules: { allowRotate: true, allowUndo: true, defaultShowNumbers: true },
+    rules: { allowRotate: true, allowUndo: true, allowMove: false, defaultShowNumbers: true },
   },
 
   {
@@ -146,6 +146,6 @@ export const LEVELS: LevelDef[] = [
       { id: "N", type: "NEUTRAL", q: 0, r: 1, limit: 6 },
     ],
     scoring: { idealMoves: 5, twoStarMax: 9 },
-    rules: { allowRotate: true, allowUndo: true, defaultShowNumbers: true },
+    rules: { allowRotate: true, allowUndo: true, allowMove: false, defaultShowNumbers: true },
   },
 ];

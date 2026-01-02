@@ -1,10 +1,10 @@
-import type { LevelDef, TileType } from "./types";
+import type { LevelDef, Tile } from "./types";
 import { computeDerived, isSolved } from "./engine";
 
 type ValidationIssue = { levelId: string; severity: "WARN" | "ERROR"; msg: string };
 
 export function validateLevel(level: LevelDef): ValidationIssue[] {
-  const tilesById: any = {};
+  const tilesById: Record<string, Tile> = {};
   const occupied: Record<string, string> = {};
 
   const key = (q: number, r: number) => `${q},${r}`;
@@ -15,7 +15,7 @@ export function validateLevel(level: LevelDef): ValidationIssue[] {
       type: td.type,
       q: td.q,
       r: td.r,
-      orient: ((td.orient ?? 0) % 6 + 6) % 6,
+      orient: ((td.orient ?? 0) % 6 + 6) % 6 as 0 | 1 | 2 | 3 | 4 | 5,
       locked: false,
       stableStreak: 0,
       limit: td.limit,
@@ -37,7 +37,7 @@ export function validateLevel(level: LevelDef): ValidationIssue[] {
   }
 
   // Rotate-only assumptions for MVP (since we haven't added movement yet)
-  const rotateOnly = level.rules.allowRotate && !("allowMove" in (level.rules as any));
+  const rotateOnly = level.rules.allowRotate && level.rules.allowMove !== true;
   // (We treat current MVP as rotate-only; adjust later when movement is added.)
 
   if (rotateOnly) {
@@ -76,7 +76,6 @@ export function logValidation(level: LevelDef) {
   const issues = validateLevel(level);
   if (issues.length === 0) return;
 
-  // eslint-disable-next-line no-console
   console.groupCollapsed(`Level validation: ${level.id} (${issues.length} issue${issues.length === 1 ? "" : "s"})`);
   for (const i of issues) {
     const fn = i.severity === "ERROR" ? console.error : console.warn;

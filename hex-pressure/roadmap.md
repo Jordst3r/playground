@@ -25,7 +25,11 @@ don’t get lost or re-litigated. If something is deferred, it belongs here. If 
 - Undo allowed, not counted
 - Faithful replay model
 - Engine-only tests (Vitest)
-
+- Create rotate-only solver and tests (separate file)
+- five levels to introduce gameplay basics
+- Levels unlock as previous one are completed
+- Local storage for persistence and saving progress
+- Replay feature (best and latest)
 ---
 
 ## Paper Cuts / Bugs (UI)
@@ -38,8 +42,11 @@ don’t get lost or re-litigated. If something is deferred, it belongs here. If 
 - **Optional polish:** render 3 stars with unearned stars dimmed
 - ~~Lock rotations after solve; re-enable on Retry~~
 - ~~Undo should not count toward moveCount~~
-- Undo is not reducing move count but should be
-- if the puzzle is solved, Undo should be disabled for that puzzle
+- ~~Undo is not reducing move count but should be~~
+- ~~if the puzzle is solved, Undo should be disabled for that puzzle~~
+- memoize `derived` computation by encoding
+- Dev progress reset for play testing replay features
+- Replay only works once and then resets the puzzle
 
 ---
 

@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { initFromLevel, applyMove } from "./engine";
 import type { LevelDef } from "./types";
 import { validateLevel } from "./validate";
 import { initFromLevel, applyMove, tick } from "./engine"; // make sure tick is imported
@@ -16,9 +15,9 @@ describe("Hex Pressure engine (rotate-only MVP)", () => {
         { id: "A", type: "NEUTRAL", q: 0, r: 0, limit: 6 },
         { id: "B", type: "NEUTRAL", q: 1, r: 0, limit: 6 },
       ],
-      scoring: { idealMoves: 0, twoStarMax: 0 },
-      rules: { allowRotate: true, allowUndo: true },
-    };
+	  scoring: { idealMoves: 0, twoStarMax: 0 },
+	  rules: { allowRotate: true, allowUndo: true, allowMove: false },
+	};
 
     const state = initFromLevel(level, 0);
     expect(state.phase).toBe("SOLVED");
@@ -33,11 +32,11 @@ describe("Hex Pressure engine (rotate-only MVP)", () => {
         { id: "A", type: "NEUTRAL", q: 0, r: 0, orient: 0, limit: 6 },
         { id: "B", type: "NEUTRAL", q: 1, r: 0, orient: 0, limit: 6 },
       ],
-      scoring: { idealMoves: 0, twoStarMax: 0 },
-      rules: { allowRotate: true, allowUndo: true },
-    };
+	  scoring: { idealMoves: 0, twoStarMax: 0 },
+	  rules: { allowRotate: true, allowUndo: true, allowMove: false },
+	};
 
-    const s0 = initFromLevel(level, 0);
+	const s0 = initFromLevel(level, 0);
     const s1 = applyMove(s0, { kind: "ROTATE", tileId: "A", dir: "CW" }, 0);
 
     expect(s1.moveCount).toBe(s0.moveCount); // still 0
@@ -57,7 +56,7 @@ describe("Hex Pressure engine (rotate-only MVP)", () => {
 		  { id: "B", type: "NEUTRAL", q: 1, r: 0, limit: 6 },
 		],
 		scoring: { idealMoves: 0, twoStarMax: 0 },
-		rules: { allowRotate: true, allowUndo: true },
+		rules: { allowRotate: true, allowUndo: true, allowMove: false },
 	  };
 
 	  const s0 = initFromLevel(level, 0);
@@ -70,7 +69,7 @@ describe("Hex Pressure engine (rotate-only MVP)", () => {
 	  expect(s1.tilesById["A"].orient).toBe(1);
 	});
 
-  it("undo: UNDO restores the previous snapshot and does NOT count as a move", () => {
+  it("undo: once solved, UNDO is ignored (use Retry to replay)", () => {
 	  const level: LevelDef = {
 		id: "t-undo",
 		name: "Undo test",
@@ -79,9 +78,9 @@ describe("Hex Pressure engine (rotate-only MVP)", () => {
 		  { id: "A", type: "DIRECTIONAL", q: 0, r: 0, orient: 0, limit: 0 },
 		  { id: "B", type: "NEUTRAL", q: 1, r: 0, limit: 6 },
 		],
-		scoring: { idealMoves: 0, twoStarMax: 0 },
-		rules: { allowRotate: true, allowUndo: true },
-	  };
+	  scoring: { idealMoves: 0, twoStarMax: 0 },
+	  rules: { allowRotate: true, allowUndo: true, allowMove: false },
+	};
 
 		const s0 = initFromLevel(level, 0);
 		const s1 = applyMove(s0, { kind: "ROTATE", tileId: "A", dir: "CW" }, 0);
@@ -91,9 +90,10 @@ describe("Hex Pressure engine (rotate-only MVP)", () => {
 
 		const s2 = applyMove(s1done, { kind: "UNDO" }, 0);
 
-		expect(s2.tilesById["A"].orient).toBe(0);
-		expect(s2.moveCount).toBe(1);
-		expect(s2.tape.map(m => m.kind)).toEqual(["ROTATE", "UNDO"]);
+		expect(s2.phase).toBe("SOLVED"); // stays solved; undo blocked
+		expect(s2.tilesById["A"].orient).toBe(1); // no change
+		expect(s2.moveCount).toBe(1); // no decrement
+		expect(s2.tape.map(m => m.kind)).toEqual(["ROTATE"]); // undo ignored
 	});
 
   
@@ -110,7 +110,7 @@ describe("Hex Pressure engine (rotate-only MVP)", () => {
 		  { id: "D", type: "NEUTRAL", q: 0, r: -1, limit: 6 },
 		],
 		scoring: { idealMoves: 0, twoStarMax: 0 },
-		rules: { allowRotate: true, allowUndo: true },
+		rules: { allowRotate: true, allowUndo: true, allowMove: false },
 	  };
 
 	  const s0 = initFromLevel(level, 0);
@@ -136,7 +136,7 @@ describe("Hex Pressure engine (rotate-only MVP)", () => {
 		  { id: "B", type: "NEUTRAL", q: 1, r: 0, limit: 6 },
 		],
 		scoring: { idealMoves: 0, twoStarMax: 0 },
-		rules: { allowRotate: true, allowUndo: true },
+		rules: { allowRotate: true, allowUndo: true, allowMove: false },
 	  };
 
 	  const s0 = initFromLevel(level, 0);
@@ -154,7 +154,7 @@ describe("Hex Pressure engine (rotate-only MVP)", () => {
 		board: { cells: cells([[0,0]]) },
 		tiles: [{ id: "A", type: "DIRECTIONAL", q: 0, r: 0, orient: 0, limit: 0 }],
 		scoring: { idealMoves: 0, twoStarMax: 0 },
-		rules: { allowRotate: true, allowUndo: true },
+		rules: { allowRotate: true, allowUndo: true, allowMove: false },
 	  };
 
 	  // This level loads solved (no neighbors => 0/0), so phase should be SOLVED.
@@ -179,11 +179,11 @@ describe("Level validator (rotate-only guardrails)", () => {
       name: "Solved on load",
       board: { cells: cells([[0, 0]]) },
       tiles: [{ id: "A", type: "NEUTRAL", q: 0, r: 0, limit: 6 }],
-      scoring: { idealMoves: 0, twoStarMax: 0 },
-      rules: { allowRotate: true, allowUndo: true },
-    };
+	  scoring: { idealMoves: 0, twoStarMax: 0 },
+	  rules: { allowRotate: true, allowUndo: true, allowMove: false },
+	};
 
-    const issues = validateLevel(level);
+	const issues = validateLevel(level);
     expect(issues.some(i => i.msg.includes("already solved"))).toBe(true);
   });
 
@@ -198,11 +198,11 @@ describe("Level validator (rotate-only guardrails)", () => {
         { id: "B", type: "NEUTRAL", q: 1, r: 0, limit: 6 },
         { id: "C", type: "NEUTRAL", q: 0, r: 1, limit: 6 },
       ],
-      scoring: { idealMoves: 0, twoStarMax: 0 },
-      rules: { allowRotate: true, allowUndo: true },
-    };
+	  scoring: { idealMoves: 0, twoStarMax: 0 },
+	  rules: { allowRotate: true, allowUndo: true, allowMove: false },
+	};
 
-    const issues = validateLevel(level);
-    expect(issues.some(i => i.severity === "ERROR" && i.msg.includes("NEUTRAL tile"))).toBe(true);
+	const issues = validateLevel(level);
+	expect(issues.some(i => i.severity === "ERROR" && i.msg.includes("NEUTRAL tile"))).toBe(true);
   });
 });

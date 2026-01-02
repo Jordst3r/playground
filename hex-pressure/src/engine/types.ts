@@ -42,6 +42,7 @@ export type LevelDef = {
   rules: {
 	  allowRotate: boolean;
 	  allowUndo: boolean;
+    allowMove: boolean
 	  defaultShowNumbers?: boolean;
 	};
 };
