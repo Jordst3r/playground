@@ -1,10 +1,20 @@
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { LEVELS } from "./engine/levels";
 import { applyMove, initFromLevel, tick, canRotateAt, tileIdAt } from "./engine/engine";
 import type { GameState, Move } from "./engine/types";
 import { CanvasBoard } from "./ui/CanvasBoard";
 import { logValidation } from "./engine/validate";
 import { solveRotateOnly } from "./engine/solver";
+import {
+  loadReplays,
+  saveReplays,
+  clearReplaysByLevel,
+  clearReplaysBySection,
+  clearAllReplays,
+  type Recording,
+  type LevelReplays,
+  type ReplayMove,
+} from "./engine/storage";
 
 type Action =
   | { type: "LOAD_LEVEL"; index: number }
@@ -26,19 +36,7 @@ function reducer(state: GameState, action: Action): GameState {
   }
 }
 
-/** --- Replay (in-memory, storage-ready) --- */
-type Axial = { q: number; r: number };
-type ReplayMove = { kind: "ROTATE"; at: Axial; dir: "CW" | "CCW" };
-
-type Recording = {
-  levelId: string;
-  levelHash: string;
-  createdAt: number;
-  moves: ReplayMove[];
-  meta?: { moveCount: number; source?: "player" | "solver" };
-};
-
-type LevelReplays = { latest?: Recording; best?: Recording };
+/** --- Replay types --- */
 type ReplayMode = "latest" | "best";
 
 type ReplayStatus =
@@ -92,12 +90,17 @@ export default function App() {
   const [showNumbers, setShowNumbers] = useState(level.rules.defaultShowNumbers ?? true);
   const [showHud, setShowHud] = useState(true);
 
-  /** Replay state */
-  const [replaysByLevel, setReplaysByLevel] = useState<Record<string, LevelReplays>>({});
+  /** Replay state (initialized from localStorage) */
+  const [replaysByLevel, setReplaysByLevel] = useState<Record<string, LevelReplays>>(() => loadReplays());
   const [replayStatus, setReplayStatus] = useState<ReplayStatus>({ state: "idle" });
   const [replaySpeedMs, setReplaySpeedMs] = useState<number>(120);
 
   const isReplaying = replayStatus.state === "loading" || replayStatus.state === "playing";
+
+  // Persist replays to localStorage whenever they change
+  useEffect(() => {
+    saveReplays(replaysByLevel);
+  }, [replaysByLevel]);
 
   // Keep latest state in a ref so replay timers don't close over stale state.
   const stateRef = useRef(state);
@@ -125,6 +128,92 @@ export default function App() {
   const solved = state.phase === "SOLVED";
   const overstressedCount = Object.values(state.derivedById).filter(d => d.state === "OVERSTRESSED").length;
   const canUndo = state.undoStack.length > 0 && state.phase !== "SETTLING" && state.phase !== "SOLVED" && !isReplaying;
+
+  // Helper functions
+  function load(i: number) {
+    setLevelIndex(i);
+    const lvl = LEVELS[i];
+
+    // Clear per-attempt run recording on any load.
+    resetRunRecording();
+
+    // Dev-only: validate + solver diagnostics
+    if (import.meta.env.DEV) {
+      logValidation(lvl);
+
+      const res = solveRotateOnly(lvl);
+      if (res.ok) {
+        console.log(
+          `[solver] ${lvl.id}: minMoves=${res.minMoves} (level idealMoves=${lvl.scoring.idealMoves}), visited=${res.visited}`
+        );
+      } else {
+        console.warn(`[solver] ${lvl.id}: ${res.reason}, visited=${res.visited}`);
+      }
+    }
+
+    dispatch({ type: "LOAD_LEVEL", index: i });
+
+    setShowNumbers(lvl.rules.defaultShowNumbers ?? true);
+    setSelectedId(null);
+  }
+
+  /** DEV reset controls */
+  /**
+   * Resets replay data for the current level.
+   * Optionally shows a confirmation dialog before clearing.
+   */
+  const resetCurrentLevel = useCallback((skipConfirmation = false) => {
+    if (!import.meta.env.DEV) return;
+
+    const confirmed = skipConfirmation || window.confirm(
+      `Reset replay data for "${level.name}"?\n\nThis will clear your best and latest replays for this level.`
+    );
+
+    if (confirmed) {
+      setReplaysByLevel(prev => clearReplaysByLevel(prev, level.id));
+      // Reload the level to ensure clean state
+      load(levelIndex);
+    }
+  }, [level.id, level.name, levelIndex]);
+
+  /**
+   * Resets replay data for all levels in the current section.
+   * Optionally shows a confirmation dialog before clearing.
+   */
+  const resetCurrentSection = useCallback((skipConfirmation = false) => {
+    if (!import.meta.env.DEV) return;
+
+    const sectionId = level.section ?? "unknown";
+    const levelsInSection = LEVELS.filter(lvl => lvl.section === sectionId).length;
+
+    const confirmed = skipConfirmation || window.confirm(
+      `Reset all replay data for section "${sectionId}"?\n\nThis will clear replays for ${levelsInSection} levels.`
+    );
+
+    if (confirmed) {
+      setReplaysByLevel(prev => clearReplaysBySection(prev, sectionId, LEVELS));
+      // Reload current level to ensure clean state
+      load(levelIndex);
+    }
+  }, [level.section, levelIndex]);
+
+  /**
+   * Resets all replay data across all levels.
+   * Optionally shows a confirmation dialog before clearing.
+   */
+  const resetAllProgress = useCallback((skipConfirmation = false) => {
+    if (!import.meta.env.DEV) return;
+
+    const confirmed = skipConfirmation || window.confirm(
+      `Reset ALL replay data?\n\nThis will clear replays for all ${LEVELS.length} levels.\n\nThis action cannot be undone.`
+    );
+
+    if (confirmed) {
+      setReplaysByLevel(clearAllReplays());
+      // Reload current level to ensure clean state
+      load(levelIndex);
+    }
+  }, [levelIndex]);
 
   // RAF tick loop for settling animation gating
   useEffect(() => {
@@ -167,12 +256,15 @@ export default function App() {
         setShowNumbers(s => !s);
       } else if (e.key === "h" || e.key === "H") {
         setShowHud(v => !v);
+      } else if ((e.key === "r" || e.key === "R") && import.meta.env.DEV) {
+        // DEV only: Reset current level (no confirmation for keyboard shortcut)
+        resetCurrentLevel(true);
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedId, isReplaying]);
+  }, [selectedId, isReplaying, resetCurrentLevel]);
 
   const scoreText = useMemo(() => {
     const moves = state.moveCount;
@@ -182,33 +274,6 @@ export default function App() {
     const ascended = moves < ideal;
     return { stars, ascended, moves, ideal, two };
   }, [state.moveCount, level.scoring]);
-
-  function load(i: number) {
-    setLevelIndex(i);
-    const lvl = LEVELS[i];
-
-    // Clear per-attempt run recording on any load.
-    resetRunRecording();
-
-    // Dev-only: validate + solver diagnostics
-    if (import.meta.env.DEV) {
-      logValidation(lvl);
-
-      const res = solveRotateOnly(lvl);
-      if (res.ok) {
-        console.log(
-          `[solver] ${lvl.id}: minMoves=${res.minMoves} (level idealMoves=${lvl.scoring.idealMoves}), visited=${res.visited}`
-        );
-      } else {
-        console.warn(`[solver] ${lvl.id}: ${res.reason}, visited=${res.visited}`);
-      }
-    }
-
-    dispatch({ type: "LOAD_LEVEL", index: i });
-
-    setShowNumbers(lvl.rules.defaultShowNumbers ?? true);
-    setSelectedId(null);
-  }
 
   function starsForLevel(levelId: string, ideal: number, twoStarMax: number): number | null {
     const slots = replaysByLevel[levelId];
@@ -241,13 +306,17 @@ export default function App() {
     load(levelIndex);
   }
 
-  /** Finalize latest/best recording on SOLVED edge */
+  /**
+   * Finalize latest/best recording on SOLVED edge.
+   * Only records player solutions, not replay completions.
+   */
   const prevSolvedRef = useRef(false);
   useEffect(() => {
     const prev = prevSolvedRef.current;
     prevSolvedRef.current = solved;
 
-    if (!prev && solved) {
+    // Only record when transitioning to solved AND not during a replay
+    if (!prev && solved && !isReplaying) {
       const lvl = LEVELS[levelIndex];
       const levelId = lvl.id;
       const levelHash = computeLevelHash(lvl);
@@ -268,7 +337,7 @@ export default function App() {
         return { ...prevMap, [levelId]: { latest: rec, best: nextBest } };
       });
     }
-  }, [solved, levelIndex]);
+  }, [solved, levelIndex, isReplaying]);
 
   /** Replay controls */
   function startReplay(mode: ReplayMode) {
@@ -298,7 +367,11 @@ export default function App() {
     load(levelIndex);
   }
 
-function stopReplay() {
+  /**
+   * Stops the currently running replay and returns to idle state.
+   * Clears the replay controller reference and resets UI state.
+   */
+  function stopReplay() {
     replayCtrlRef.current = null;
     setReplayStatus({ state: "idle" });
   }
@@ -525,6 +598,18 @@ function stopReplay() {
               <div style={{ marginLeft: "auto", opacity: 0.8 }}>
                 Phase: {state.phase} • Moves: {state.moveCount}
               </div>
+            </div>
+
+            <div style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <button onClick={() => resetCurrentLevel()} style={{ fontSize: 11, padding: "4px 8px" }}>
+                Reset Level (R)
+              </button>
+              <button onClick={() => resetCurrentSection()} style={{ fontSize: 11, padding: "4px 8px" }}>
+                Reset Section "{level.section ?? 'unknown'}"
+              </button>
+              <button onClick={() => resetAllProgress()} style={{ fontSize: 11, padding: "4px 8px" }}>
+                Reset All Progress
+              </button>
             </div>
 
             <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 10 }}>

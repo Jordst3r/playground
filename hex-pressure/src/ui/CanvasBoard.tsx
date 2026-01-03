@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef } from "react";
-import { axialToPixel, hexCorner, pointInHex, key as k } from "../engine/hex";
+import { axialToPixel, hexCorner, pointInHex } from "../engine/hex";
 import type { GameState, Tile } from "../engine/types";
 
 type Props = {
@@ -123,37 +123,18 @@ export function CanvasBoard({
         const txt = `${d1?.pressure ?? 0}/${tile.limit >= 900 ? "∞" : tile.limit}`;
         ctx.fillText(txt, x, y);
       }
-	  
-	  // Tile ID label (for debugging / early dev)
-		ctx.fillStyle = "rgba(255,255,255,0.5)";
-		ctx.font = "12px system-ui, sans-serif";
-		ctx.textAlign = "center";
-		ctx.textBaseline = "middle";
-		ctx.fillText(tile.id, x, y - size * 0.25);
+
+      // Tile ID label (DEV mode only for debugging)
+      if (import.meta.env.DEV) {
+        ctx.fillStyle = "rgba(255,255,255,0.5)";
+        ctx.font = "12px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(tile.id, x, y - size * 0.25);
+      }
 
     }
   }, [state, boardCells, selectedId, showNumbers, width, height, originX, originY, size]);
-
-  // animation loop tick renders continuously (cheap at this scale)
-  useEffect(() => {
-    let raf = 0;
-    const loop = () => {
-      // force redraw by touching state? we just rely on useEffect redraw on state changes,
-      // but to animate settling interpolation we need continuous paints.
-      // simplest: dispatch a custom event or keep a local "clock".
-      // Here: just trigger a repaint by calling setSelectedId(same) rarely is bad.
-      // Instead, we redraw via a dummy state in parent; but keeping it here: requestAnimationFrame and draw in effect above won’t rerun.
-      // So: re-run drawing here manually.
-      const canvas = canvasRef.current;
-      if (canvas) {
-        // Re-run the effect body by calling a function would be cleaner.
-        // Minimal hack: do nothing; parent will tick state regularly.
-      }
-      raf = requestAnimationFrame(loop);
-    };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
-  }, []);
 
   // click selection
   function onClick(e: React.MouseEvent<HTMLCanvasElement>) {

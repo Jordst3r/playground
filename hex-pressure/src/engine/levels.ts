@@ -31,6 +31,7 @@ export const LEVELS: LevelDef[] = [
     // Intended ideal moves: 1
     id: "w1-01",
     name: "Warmup",
+    section: "intro",
     board: { cells: FLOWER_CELLS },
     tiles: [
       // Problem tile: counts 2 neighbors initially (E + NE) but limit is 1.
@@ -47,10 +48,11 @@ export const LEVELS: LevelDef[] = [
   {
     // Teaches: DIRECTIONAL tiles can be "tight" (limit 0); one rotation can fully relieve pressure.
     // Goal: Reduce a 1/0 overstress to 0/0 by rotating away from its only neighbor.
-    // Failure mode: Rotating the wrong direction; assuming “0 limit” is impossible.
+    // Failure mode: Rotating the wrong direction; assuming "0 limit" is impossible.
     // Intended ideal moves: 1
     id: "w1-02",
     name: "Zero Tolerance",
+    section: "intro",
     board: { cells: FLOWER_CELLS },
     tiles: [
       // Anchor neighbor (stable)
@@ -72,6 +74,7 @@ export const LEVELS: LevelDef[] = [
     // Intended ideal moves: 4
     id: "w1-03",
     name: "Two Knobs",
+    section: "intro",
     board: { cells: FLOWER_CELLS },
     tiles: [
       // Problem tile A: has 3 occupied neighbors (E=B, NE=C, NW=D).
@@ -94,12 +97,13 @@ export const LEVELS: LevelDef[] = [
   },
 
   {
-    // Teaches: Rotation direction matters; a “wrong way” turn can make pressure worse.
+    // Teaches: Rotation direction matters; a "wrong way" turn can make pressure worse.
     // Goal: Use the shortest rotation direction for each problem tile (introduces intentional choice: Q vs E).
-    // Failure mode: Always rotating the same direction; not noticing that CCW can worsen (counts the “wrap” neighbor).
+    // Failure mode: Always rotating the same direction; not noticing that CCW can worsen (counts the "wrap" neighbor).
     // Intended ideal moves: 2
     id: "w1-04",
     name: "Wrong Way",
+    section: "intro",
     board: { cells: FLOWER_CELLS },
     tiles: [
       // A is red because it counts E (B) + NE (C) with limit 1.
@@ -121,12 +125,13 @@ export const LEVELS: LevelDef[] = [
   },
 
   {
-    // Teaches: Sink returns as a stabilizer. Treat it as a “safe neighbor” and solve a denser cluster.
+    // Teaches: Sink returns as a stabilizer. Treat it as a "safe neighbor" and solve a denser cluster.
     // Goal: Stabilize multiple directionals around a sink; practice planning across 3 tiles.
-    // Failure mode: Treating the sink as a “problem” (it never is) / random spinning instead of targeting which neighbor to ignore.
+    // Failure mode: Treating the sink as a "problem" (it never is) / random spinning instead of targeting which neighbor to ignore.
     // Intended ideal moves: 5 (subject to adjustment once solver exists)
     id: "w1-05",
     name: "Safety Valve",
+    section: "intro",
     board: { cells: FLOWER_CELLS },
     tiles: [
       // Sink is always calm (limit huge); it increases local density without becoming a constraint.

@@ -25,6 +25,7 @@ export type Move =
 export type LevelDef = {
   id: string;
   name: string;
+  section?: string; // Optional section identifier for grouping levels
   board: { cells: Array<{ q: number; r: number }> };
   tiles: Array<{
     id: string;
