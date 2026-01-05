@@ -174,7 +174,13 @@ If you're here to playtest:
 
 ## License
 
-This project is currently unlicensed. All rights reserved pending final license decision.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+### What this means:
+- ✅ Free to use, modify, and distribute
+- ✅ Can be used in commercial projects
+- ✅ No warranty provided
+- ⚠️ Must include original copyright notice in copies
 
 ## Changelog
 
@@ -182,6 +188,6 @@ See [notes/CHANGELOG.md](notes/CHANGELOG.md) for detailed change history.
 
 ## Credits
 
-**Development:** Jordi (with AI pair-programming assistance from Claude Code)
+**Development:** Jordi Ensign (with AI pair-programming assistance from Claude Code, ChatGPT)
 
 **Inspiration:** Hexagonal puzzle games, spatial reasoning mechanics, minimalist design principles

@@ -3,6 +3,14 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "license": "MIT",
+  "author": "Jordi Ensign",
+  "description": "A puzzle game about managing pressure on a hexagonal grid",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Jordst3r/playground.git",
+    "directory": "hex-pressure"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

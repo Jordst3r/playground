@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## 2026-01-05
+
+### Added
+- **MIT License**
+  - Created `LICENSE` file with standard MIT License text
+  - Updated README.md with license information and user-friendly explanation
+  - Updated package.json with license, author, description, and repository fields
+  - Project is now officially open-source under permissive MIT License
+
+---
+
 ## 2026-01-03
 
 ### Added
