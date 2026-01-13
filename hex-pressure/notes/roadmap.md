@@ -45,8 +45,8 @@ don’t get lost or re-litigated. If something is deferred, it belongs here. If 
 - ~~Undo is not reducing move count but should be~~
 - ~~if the puzzle is solved, Undo should be disabled for that puzzle~~
 - memoize `derived` computation by encoding
-- Dev progress reset for play testing replay features
-- Replay only works once and then resets the puzzle
+- ~~Dev progress reset for play testing replay features~~
+- ~~Replay only works once and then resets the puzzle~~
 
 ---
 

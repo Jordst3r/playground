@@ -26,6 +26,7 @@ export type LevelDef = {
   id: string;
   name: string;
   section?: string; // Optional section identifier for grouping levels
+  unlockThreshold?: number; // Percentage (0-100) of previous section required to unlock this section. Defaults to 80.
   board: { cells: Array<{ q: number; r: number }> };
   tiles: Array<{
     id: string;

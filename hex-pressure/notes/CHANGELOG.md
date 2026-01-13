@@ -4,6 +4,59 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## 2026-01-13
+
+### Added
+- **Accordion-Style Section Organization**
+  - Implemented collapsible section headers for level organization
+  - Section headers show expand/collapse arrows (▶ collapsed, ▼ expanded)
+  - Each section displays progress: earned stars / max stars (e.g., "12 / 15 ★")
+  - Introduction section starts expanded by default
+  - Levels are nested under section headers with visual indentation
+  - Improved level navigation with progressive disclosure
+
+- **Section Locking System with Configurable Thresholds**
+  - Added `unlockThreshold` property to `LevelDef` type (percentage 0-100)
+  - Threshold is configurable per section and defaults to 80%
+  - First section (Introduction) is always unlocked
+  - Subsequent sections require completion percentage of previous section
+  - Locked sections display 🔒 lock icon and red-tinted styling
+  - Clear unlock requirements shown: "Complete 80% of Introduction (12/15 ★) to unlock"
+  - Locked sections can be expanded to preview content but levels are unplayable
+  - Shows "5 levels locked" placeholder message for locked sections
+
+- **Second Level Section: Foundations**
+  - Added 5 new levels (w2-01 through w2-05) mirroring Introduction section
+  - Reinforces core rotation mechanics with identical puzzle configurations
+  - Section requires 80% completion (12/15 stars) of Introduction to unlock
+  - Total game content expanded from 5 to 10 levels
+
+- **Enhanced Section Statistics**
+  - Real-time completion percentage calculation per section
+  - Automatic unlock status updates as progress is made
+  - Section metadata tracking with order preservation
+
+### Changed
+- **Level Section Names**
+  - Renamed section identifier from `"intro"` to `"Introduction"` for consistency
+  - More formal, user-friendly section naming convention
+  - Updated all 5 Introduction levels with new section name
+
+- **UI Layout Improvements**
+  - Section headers now more prominent with distinct styling
+  - Better visual hierarchy between sections and levels
+  - Locked sections have reduced opacity (0.6) and warning colors
+  - Star progress always visible even for locked sections
+
+### Technical Details
+- Section locking logic implemented with `getSectionStats()` and `isSectionUnlocked()` callbacks
+- `starsForLevel` function wrapped in `useCallback` for React optimization
+- Section order tracked in `levelsBySection` memoized structure
+- Lock status checked against previous section's completion percentage
+- Default threshold of 80% applied when `unlockThreshold` not specified
+
+---
+
 ## 2026-01-05
 
 ### Added

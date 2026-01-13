@@ -31,7 +31,7 @@ export const LEVELS: LevelDef[] = [
     // Intended ideal moves: 1
     id: "w1-01",
     name: "Warmup",
-    section: "intro",
+    section: "Introduction",
     board: { cells: FLOWER_CELLS },
     tiles: [
       // Problem tile: counts 2 neighbors initially (E + NE) but limit is 1.
@@ -52,7 +52,7 @@ export const LEVELS: LevelDef[] = [
     // Intended ideal moves: 1
     id: "w1-02",
     name: "Zero Tolerance",
-    section: "intro",
+    section: "Introduction",
     board: { cells: FLOWER_CELLS },
     tiles: [
       // Anchor neighbor (stable)
@@ -74,7 +74,7 @@ export const LEVELS: LevelDef[] = [
     // Intended ideal moves: 4
     id: "w1-03",
     name: "Two Knobs",
-    section: "intro",
+    section: "Introduction",
     board: { cells: FLOWER_CELLS },
     tiles: [
       // Problem tile A: has 3 occupied neighbors (E=B, NE=C, NW=D).
@@ -103,7 +103,7 @@ export const LEVELS: LevelDef[] = [
     // Intended ideal moves: 2
     id: "w1-04",
     name: "Wrong Way",
-    section: "intro",
+    section: "Introduction",
     board: { cells: FLOWER_CELLS },
     tiles: [
       // A is red because it counts E (B) + NE (C) with limit 1.
@@ -131,7 +131,7 @@ export const LEVELS: LevelDef[] = [
     // Intended ideal moves: 5 (subject to adjustment once solver exists)
     id: "w1-05",
     name: "Safety Valve",
-    section: "intro",
+    section: "Introduction",
     board: { cells: FLOWER_CELLS },
     tiles: [
       // Sink is always calm (limit huge); it increases local density without becoming a constraint.
@@ -147,7 +147,86 @@ export const LEVELS: LevelDef[] = [
       // This one starts more constrained; typically needs ~1–2 turns.
       { id: "C", type: "DIRECTIONAL", q: 0, r: -1, orient: 5, limit: 1 },
 
-      // One neutral to complete the “feel” of the cluster without adding unsolvable constraints.
+      // One neutral to complete the "feel" of the cluster without adding unsolvable constraints.
+      { id: "N", type: "NEUTRAL", q: 0, r: 1, limit: 6 },
+    ],
+    scoring: { idealMoves: 5, twoStarMax: 9 },
+    rules: { allowRotate: true, allowUndo: true, allowMove: false, defaultShowNumbers: true },
+  },
+
+  // ===== FOUNDATIONS SECTION =====
+  // Second section: reinforcing core mechanics with similar challenges
+  // Requires 80% completion (12/15 stars) of Introduction section to unlock
+
+  {
+    id: "w2-01",
+    name: "Warmup",
+    section: "Foundations",
+    unlockThreshold: 80,
+    board: { cells: FLOWER_CELLS },
+    tiles: [
+      { id: "A", type: "DIRECTIONAL", q: 0, r: 0, orient: 0, limit: 1 },
+      { id: "B", type: "NEUTRAL", q: 1, r: 0, limit: 6 },
+      { id: "C", type: "NEUTRAL", q: 1, r: -1, limit: 6 },
+    ],
+    scoring: { idealMoves: 1, twoStarMax: 3 },
+    rules: { allowRotate: true, allowUndo: true, allowMove: false, defaultShowNumbers: true },
+  },
+
+  {
+    id: "w2-02",
+    name: "Zero Tolerance",
+    section: "Foundations",
+    board: { cells: FLOWER_CELLS },
+    tiles: [
+      { id: "A", type: "NEUTRAL", q: 0, r: 0, limit: 6 },
+      { id: "B", type: "DIRECTIONAL", q: 1, r: 0, orient: 3, limit: 0 },
+    ],
+    scoring: { idealMoves: 1, twoStarMax: 3 },
+    rules: { allowRotate: true, allowUndo: true, allowMove: false, defaultShowNumbers: true },
+  },
+
+  {
+    id: "w2-03",
+    name: "Two Knobs",
+    section: "Foundations",
+    board: { cells: FLOWER_CELLS },
+    tiles: [
+      { id: "A", type: "DIRECTIONAL", q: 0, r: 0, orient: 0, limit: 1 },
+      { id: "B", type: "DIRECTIONAL", q: 1, r: 0, orient: 2, limit: 1 },
+      { id: "C", type: "NEUTRAL", q: 1, r: -1, limit: 6 },
+      { id: "D", type: "NEUTRAL", q: 0, r: -1, limit: 6 },
+      { id: "E", type: "NEUTRAL", q: 0, r: 1, limit: 6 },
+    ],
+    scoring: { idealMoves: 4, twoStarMax: 7 },
+    rules: { allowRotate: true, allowUndo: true, allowMove: false, defaultShowNumbers: true },
+  },
+
+  {
+    id: "w2-04",
+    name: "Wrong Way",
+    section: "Foundations",
+    board: { cells: FLOWER_CELLS },
+    tiles: [
+      { id: "A", type: "DIRECTIONAL", q: 0, r: 0, orient: 0, limit: 1 },
+      { id: "B", type: "DIRECTIONAL", q: 1, r: 0, orient: 1, limit: 1 },
+      { id: "C", type: "NEUTRAL", q: 1, r: -1, limit: 6 },
+      { id: "D", type: "NEUTRAL", q: 0, r: 1, limit: 6 },
+    ],
+    scoring: { idealMoves: 2, twoStarMax: 5 },
+    rules: { allowRotate: true, allowUndo: true, allowMove: false, defaultShowNumbers: true },
+  },
+
+  {
+    id: "w2-05",
+    name: "Safety Valve",
+    section: "Foundations",
+    board: { cells: FLOWER_CELLS },
+    tiles: [
+      { id: "S", type: "SINK", q: 0, r: 0, orient: 0, limit: 999 },
+      { id: "A", type: "DIRECTIONAL", q: 1, r: 0, orient: 2, limit: 1 },
+      { id: "B", type: "DIRECTIONAL", q: 1, r: -1, orient: 3, limit: 1 },
+      { id: "C", type: "DIRECTIONAL", q: 0, r: -1, orient: 5, limit: 1 },
       { id: "N", type: "NEUTRAL", q: 0, r: 1, limit: 6 },
     ],
     scoring: { idealMoves: 5, twoStarMax: 9 },
