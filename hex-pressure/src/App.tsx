@@ -5,6 +5,7 @@ import type { GameState, Move } from "./engine/types";
 import { CanvasBoard } from "./ui/CanvasBoard";
 import { logValidation } from "./engine/validate";
 import { solveRotateOnly } from "./engine/solver";
+import { starsForMoves } from "./engine/scoring";
 import {
   loadReplays,
   saveReplays,
@@ -72,13 +73,6 @@ function fnv1a32(str: string): string {
 function computeLevelHash(levelDef: unknown): string {
   return fnv1a32(stableStringify(levelDef));
 }
-
-function starsForMoves(moves: number, ideal: number, twoStarMax: number): number {
-  if (moves <= ideal) return 3;
-  if (moves <= twoStarMax) return 2;
-  return 1;
-}
-
 
 // Main App component
 export default function App() {
