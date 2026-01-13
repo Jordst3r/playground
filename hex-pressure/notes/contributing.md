@@ -21,7 +21,9 @@ Runs engine-only tests (Vitest).
 ## Guidelines
 
 * Follow rules documented in `DESIGN.md`
+* Review `CHANGELOG.md` to be familiar with recent updates
 * Check `ROADMAP.md` before introducing new mechanics
+* Review latest `ANALYSIS-REPORT.md` entries for development prioritizations
 * Prefer small, reviewable changes
 * Engine changes should include or update tests
 * UI/Canvas changes do not require tests (for now)

@@ -80,7 +80,7 @@ function starsForMoves(moves: number, ideal: number, twoStarMax: number): number
 }
 
 
-// maimn App component
+// Main App component
 export default function App() {
   const [levelIndex, setLevelIndex] = useState(0);
   const level = LEVELS[levelIndex];
@@ -89,6 +89,9 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showNumbers, setShowNumbers] = useState(level.rules.defaultShowNumbers ?? true);
   const [showHud, setShowHud] = useState(true);
+
+  // Accordion state: track which sections are expanded
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(() => new Set(["Introduction"]));
 
   /** Replay state (initialized from localStorage) */
   const [replaysByLevel, setReplaysByLevel] = useState<Record<string, LevelReplays>>(() => loadReplays());
@@ -116,6 +119,88 @@ export default function App() {
 
   const replayCtrlRef = useRef<ReplayCtrl | null>(null);
   const replayRunIdRef = useRef(0);
+
+  // Helper function to calculate stars for a level
+  const starsForLevel = useCallback((levelId: string, ideal: number, twoStarMax: number): number | null => {
+    const slots = replaysByLevel[levelId];
+    const rec = slots?.best ?? slots?.latest;
+    if (!rec) return null; // not completed
+    return starsForMoves(rec.moves.length, ideal, twoStarMax);
+  }, [replaysByLevel]);
+
+  // Group levels by section and track section order
+  const levelsBySection = useMemo(() => {
+    const groups: Record<string, Array<{ level: typeof LEVELS[0]; index: number }>> = {};
+    const sectionOrder: string[] = [];
+
+    LEVELS.forEach((lvl, idx) => {
+      const sectionName = lvl.section ?? "Other";
+      if (!groups[sectionName]) {
+        groups[sectionName] = [];
+        sectionOrder.push(sectionName);
+      }
+      groups[sectionName].push({ level: lvl, index: idx });
+    });
+
+    return { groups, sectionOrder };
+  }, []);
+
+  // Calculate section completion and unlock status
+  const getSectionStats = useCallback((sectionName: string) => {
+    const levels = levelsBySection.groups[sectionName] || [];
+    const earnedStars = levels.reduce((acc, { level: l }) => {
+      const stars = starsForLevel(l.id, l.scoring.idealMoves, l.scoring.twoStarMax);
+      return acc + (stars ?? 0);
+    }, 0);
+    const maxStars = levels.length * 3;
+    const completionPercent = maxStars > 0 ? Math.floor((earnedStars / maxStars) * 100) : 0;
+
+    return { earnedStars, maxStars, completionPercent };
+  }, [levelsBySection.groups, starsForLevel]);
+
+  // Check if a section is unlocked
+  const isSectionUnlocked = useCallback((sectionName: string): { unlocked: boolean; reason?: string } => {
+    const sectionIndex = levelsBySection.sectionOrder.indexOf(sectionName);
+
+    // First section is always unlocked
+    if (sectionIndex === 0) {
+      return { unlocked: true };
+    }
+
+    // Get the first level of this section to check unlock threshold
+    const firstLevelInSection = levelsBySection.groups[sectionName]?.[0]?.level;
+    if (!firstLevelInSection) {
+      return { unlocked: true }; // No levels, consider unlocked
+    }
+
+    const threshold = firstLevelInSection.unlockThreshold ?? 80; // Default to 80%
+
+    // Check previous section completion
+    const previousSectionName = levelsBySection.sectionOrder[sectionIndex - 1];
+    const prevStats = getSectionStats(previousSectionName);
+
+    if (prevStats.completionPercent >= threshold) {
+      return { unlocked: true };
+    }
+
+    const starsNeeded = Math.ceil((threshold / 100) * prevStats.maxStars);
+    return {
+      unlocked: false,
+      reason: `Complete ${threshold}% of ${previousSectionName} (${starsNeeded}/${prevStats.maxStars} ★) to unlock`,
+    };
+  }, [levelsBySection.groups, levelsBySection.sectionOrder, getSectionStats]);
+
+  const toggleSection = (sectionName: string) => {
+    setExpandedSections(prev => {
+      const next = new Set(prev);
+      if (next.has(sectionName)) {
+        next.delete(sectionName);
+      } else {
+        next.add(sectionName);
+      }
+      return next;
+    });
+  };
 
   const selectedTile = selectedId ? state.tilesById[selectedId] : null;
   const canRotate =
@@ -274,13 +359,6 @@ export default function App() {
     const ascended = moves < ideal;
     return { stars, ascended, moves, ideal, two };
   }, [state.moveCount, level.scoring]);
-
-  function starsForLevel(levelId: string, ideal: number, twoStarMax: number): number | null {
-    const slots = replaysByLevel[levelId];
-    const rec = slots?.best ?? slots?.latest;
-    if (!rec) return null; // not completed
-    return starsForMoves(rec.moves.length, ideal, twoStarMax);
-  }
 
   function rotate(dir: "CW" | "CCW") {
     if (isReplaying) return;
@@ -651,55 +729,127 @@ export default function App() {
         }}
       >
         <div style={{ fontWeight: 650, marginBottom: 10 }}>Levels</div>
-        <div style={{ display: "grid", gap: 8 }}>
-          {LEVELS.map((l, i) => (
-            <button
-              key={l.id}
-              onClick={() => load(i)}
-              disabled={isReplaying}
-              style={{
-                textAlign: "left",
-                padding: "10px 10px",
-                borderRadius: 10,
-                border: i === levelIndex ? "1px solid rgba(255,255,255,0.45)" : "1px solid rgba(255,255,255,0.12)",
-                background: i === levelIndex ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.03)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 12,
-              }}
-            >
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {l.name}
+        <div style={{ display: "grid", gap: 10 }}>
+          {Object.entries(levelsBySection.groups).map(([sectionName, levelsInSection]) => {
+            const isExpanded = expandedSections.has(sectionName);
+            const stats = getSectionStats(sectionName);
+            const unlockStatus = isSectionUnlocked(sectionName);
+            const isLocked = !unlockStatus.unlocked;
+
+            return (
+              <div key={sectionName} style={{ display: "grid", gap: 6 }}>
+                {/* Section header (accordion toggle) */}
+                <div style={{ display: "grid", gap: 4 }}>
+                  <button
+                    onClick={() => toggleSection(sectionName)}
+                    disabled={isReplaying}
+                    style={{
+                      textAlign: "left",
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      border: isLocked ? "1px solid rgba(255,100,100,0.25)" : "1px solid rgba(255,255,255,0.18)",
+                      background: isLocked ? "rgba(255,100,100,0.05)" : "rgba(255,255,255,0.06)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 10,
+                      fontWeight: 600,
+                      opacity: isLocked ? 0.6 : 1,
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 14, opacity: 0.8 }}>
+                        {isLocked ? "🔒" : (isExpanded ? "▼" : "▶")}
+                      </span>
+                      <span>{sectionName}</span>
+                    </div>
+                    <div style={{ fontSize: 13, opacity: 0.75 }}>
+                      {stats.earnedStars} / {stats.maxStars} ★
+                    </div>
+                  </button>
+
+                  {/* Lock message */}
+                  {isLocked && (
+                    <div style={{
+                      fontSize: 11,
+                      opacity: 0.7,
+                      paddingLeft: 36,
+                      lineHeight: 1.3,
+                    }}>
+                      {unlockStatus.reason}
+                    </div>
+                  )}
                 </div>
-                <div style={{ fontSize: 12, opacity: 0.75 }}>{l.id}</div>
-              </div>
 
-              {(() => {
-                const stars = starsForLevel(l.id, l.scoring.idealMoves, l.scoring.twoStarMax);
-                if (stars == null) return null;
-
-                return (
-                  <div style={{ display: "inline-flex", gap: 2, flexShrink: 0 }}>
-                    {[1, 2, 3].map((s) => (
-                      <span
-                        key={s}
+                {/* Level list (shown when expanded and unlocked) */}
+                {isExpanded && !isLocked && (
+                  <div style={{ display: "grid", gap: 6, paddingLeft: 8 }}>
+                    {levelsInSection.map(({ level: l, index: i }) => (
+                      <button
+                        key={l.id}
+                        onClick={() => load(i)}
+                        disabled={isReplaying}
                         style={{
-                          opacity: s <= stars ? 1 : 0.25,
-                          color: "#f4c542",
-                          fontSize: 14,
-                          lineHeight: 1,
+                          textAlign: "left",
+                          padding: "10px 10px",
+                          borderRadius: 10,
+                          border: i === levelIndex ? "1px solid rgba(255,255,255,0.45)" : "1px solid rgba(255,255,255,0.12)",
+                          background: i === levelIndex ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.03)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 12,
                         }}
                       >
-                        ★
-                      </span>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {l.name}
+                          </div>
+                          <div style={{ fontSize: 12, opacity: 0.75 }}>{l.id}</div>
+                        </div>
+
+                        {(() => {
+                          const stars = starsForLevel(l.id, l.scoring.idealMoves, l.scoring.twoStarMax);
+                          if (stars == null) return null;
+
+                          return (
+                            <div style={{ display: "inline-flex", gap: 2, flexShrink: 0 }}>
+                              {[1, 2, 3].map((s) => (
+                                <span
+                                  key={s}
+                                  style={{
+                                    opacity: s <= stars ? 1 : 0.25,
+                                    color: "#f4c542",
+                                    fontSize: 14,
+                                    lineHeight: 1,
+                                  }}
+                                >
+                                  ★
+                                </span>
+                              ))}
+                            </div>
+                          );
+                        })()}
+                      </button>
                     ))}
                   </div>
-                );
-              })()}
-            </button>
-          ))}
+                )}
+
+                {/* Show locked placeholder when expanded but locked */}
+                {isExpanded && isLocked && (
+                  <div style={{
+                    paddingLeft: 8,
+                    fontSize: 13,
+                    opacity: 0.5,
+                    fontStyle: "italic",
+                    padding: "10px",
+                  }}>
+                    {levelsInSection.length} level{levelsInSection.length !== 1 ? 's' : ''} locked
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {/* Replay controls */}
